@@ -51,6 +51,8 @@ void myGPIOB_Init(void);
 void myTIM2_Init(void);
 void myEXTI_Init(void);
 
+void myGPIOA_Init(void);
+
 
 // Declare/initialize your global variables here...
 // NOTE: You'll need at least one global variable
@@ -58,6 +60,8 @@ void myEXTI_Init(void);
 // whether TIM2 has started counting or not.
 volatile uint32_t timerOverflow = 0;
 
+volatile uint8_t selectedSignal = 0;
+volatile uint8_t firstEdge = 1;
 
 /*** Call this function to boost the STM32F0xx clock to 48 MHz ***/
 
@@ -108,9 +112,12 @@ main(int argc, char* argv[])
 
         RCC->APB2ENR |= RCC_APB2ENR_SYSCFGCOMPEN;  /* Enable SYSCFG clock */
 
+    myGPIOA_Init();     /* Initialize USER button PA0 */
     myGPIOB_Init();     /* Initialize I/O port PB */
     myTIM2_Init();      /* Initialize timer TIM2 */
     myEXTI_Init();      /* Initialize EXTI */
+
+    uint8_t previousSignal = selectedSignal;
 
     while (1)
     {
@@ -122,6 +129,18 @@ main(int argc, char* argv[])
 
 }
 
+void myGPIOA_Init()
+{
+    /* Enable clofk for GPIOA peripheral */
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN_Msk;
+
+    /* Congigure PA0 as input */
+    GPIOA->MODER &= ~GPIO_MODER_MODER0;
+
+    /* Ensure no pull-up/pull-down for PA0 */
+    GPIOA->PUPDR &= ~GPIO_PUPDR_PUPDR0;
+
+}
 
 void myGPIOB_Init()
 {
@@ -130,15 +149,17 @@ void myGPIOB_Init()
 
     RCC->AHBENR |= RCC_AHBENR_GPIOBEN_Msk;
 
-    /* Configure PB2 as input */
+    /* Configure PB2 and PB3 as inputs */
     // Relevant register: GPIOB->MODER
 
     GPIOB->MODER &= ~(3U << 4);
+    GPIOB->MODER &= ~GPIO_MODER_MODER3;
 
-    /* Ensure no pull-up/pull-down for PB2 */
+    /* Ensure no pull-up/pull-down for PB2 and PB3 */
     // Relevant register: GPIOB->PUPDR
 
     GPIOB->PUPDR &= ~(3U << 4);
+    GPIOB->PUPDR &= ~GPIO_PUPDR_PUPDR3;
 }
 
 
@@ -181,10 +202,9 @@ void myTIM2_Init()
 
     TIM2->DIER |= TIM_DIER_UIE;
 
-    /* start counting timer pulses */
-    TIM2->CR1 |= TIM_CR1_CEN;
+    /* Keep timer stopped until first rising edge */
+    TIM2->CR1 &= ~TIM_CR1_CEN;
 }
-
 
 void myEXTI_Init()
 {
@@ -215,6 +235,41 @@ void myEXTI_Init()
     // Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 
     NVIC_EnableIRQ(EXTI2_3_IRQn);
+
+    /* User button */
+
+    /* Map EXTI0 line to PA0 */
+    SYSCFG->EXTICR[0] &= ~SYSCFG_EXTICR1_EXTI0;
+
+    /* EXTI0 line interrupts: set rising-edge trigger */
+    EXTI->RTSR |= EXTI_RTSR_TR0;
+    EXTI->FTSR &= ~EXTI_FTSR_TR0;
+
+    /* Unmask interrupts from EXTI0 line */
+    EXTI->PR = EXTI_PR_PR0;
+    EXTI->IMR |= EXTI_IMR_MR0;
+
+    /* Assign EXTI0 interrupt priority = 0 in NVIC */
+    NVIC_SetPriority(EXTI0_1_IRQn, 0);
+
+    /* Enable EXTI0 interrupts in NVIC */
+    NVIC_EnableIRQ(EXTI0_1_IRQn);
+
+    /* PB3 */
+
+    /* Map EXTI3 line to PB3 */
+    SYSCFG->EXTICR[0] &= ~(0xFU << 12);
+    SYSCFG->EXTICR[0] |= (0x1U << 12);
+
+    /* Configure rising-edge trigger */
+    EXTI->RTSR |= EXTI_RTSR_TR3;
+    EXTI->FTSR &= ~EXTI_FTSR_TR3;
+
+    /* Clear pending flag */
+    EXTI->PR = EXTI_PR_PR3;
+
+    /* Initially disable EXTI3 */
+    EXTI->IMR &= ~EXTI_IMR_MR3;
 }
 
 
@@ -243,10 +298,19 @@ void TIM2_IRQHandler()
 void EXTI2_3_IRQHandler()
 {
     // Declare/initialize your local variables here...
-    static int firstEdge = 1;
+    uint32_t activeLine;
+
+    if (selectedSignal == 0)
+    {
+        activeLine = EXTI_PR_PR2;
+    }
+    else
+    {
+        activeLine = EXTI_PR_PR3;
+    }
 
     /* Check if EXTI2 interrupt pending flag is indeed set */
-    if ((EXTI->PR & EXTI_PR_PR2) != 0)
+    if ((EXTI->PR & activeLine) != 0)
     {
         //
         // 1. If this is the first edge:
@@ -267,10 +331,8 @@ void EXTI2_3_IRQHandler()
         // by writing 1 to it.
         //
 
-        /* Clear EXTI2 pending flag */
-        EXTI->PR = EXTI_PR_PR2;
-
-        /* Enough samples already collected: ignore further edges */
+        /* Clear selected interrupt pending flag */
+        EXTI->PR = activeLine; // CHANGED
 
         if (firstEdge == 1)
         {
@@ -291,9 +353,9 @@ void EXTI2_3_IRQHandler()
         {
             // Second rising edge
 
-            int count = TIM2->CNT;
+            TIM2->CR1 &= ~TIM_CR1_CEN;
 
-            TIM2->CR1 ^= TIM_CR1_CEN;
+            uint32_t count = TIM2->CNT;
 
             //trace_printf("\n 2nd rising edge");
 
@@ -312,8 +374,44 @@ void EXTI2_3_IRQHandler()
 
             firstEdge = 1;
         }
+    }
+}
 
-        EXTI->PR = EXTI_PR_PR2;
+void EXTI0_1_IRQHandler()
+{
+    /* Check if the user button has been pressed */
+    if((EXTI->PR & EXTI_PR_PR0) != 0)
+    {
+        /* Clear pending flag */
+        EXTI->PR = EXTI_PR_PR0;
+
+        /* Disable both signal interrupts */
+        EXTI->IMR &= ~(EXTI_IMR_MR2 | EXTI_IMR_MR3);
+
+        /* Stop and reset timer */
+        TIM2->CR1 &= ~TIM_CR1_CEN;
+        TIM2->CNT = 0;
+        TIM2->SR &= ~TIM_SR_UIF;
+
+        timerOverflow = 0;
+        firstEdge = 1;
+
+        /* Switches selected signal */
+        selectedSignal ^= 1;
+
+         /* Clear old pending flags */
+        EXTI->PR = EXTI_PR_PR2 | EXTI_PR_PR3;
+
+        if (selectedSignal == 0)
+        {
+            /* Enable function generator */
+            EXTI->IMR |= EXTI_IMR_MR2;
+        }
+        else
+        {
+            /* Enable NE555 */
+            EXTI->IMR |= EXTI_IMR_MR3;
+        }
     }
 }
 
