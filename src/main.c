@@ -53,11 +53,16 @@ void myGPIOA_Init(void);
 void myGPIOB_Init(void);
 void myGPIOC_Init(void);
 
+void myADC_Init(void);
+uint32_t myADC_Read();
+
 // Declare/initialize your global variables here...
 // NOTE: You'll need at least one global variable
 // (say, timerTriggered = 0 or 1) to indicate
 // whether TIM2 has started counting or not.
 volatile uint32_t timerOverflow = 0;
+
+volatile uint32_t measuredCount = 0;
 
 volatile uint8_t selectedSignal = 0;
 volatile uint8_t firstEdge = 1;
@@ -111,19 +116,37 @@ main(int argc, char* argv[])
     myGPIOA_Init();     /* Initialize USER button PA0 */
     myGPIOB_Init();     /* Initialize I/O port PB */
     myGPIOC_Init();     /* Initialize blue and green LEDs */
+
+    myADC_Init(); 		/* Initialize ADC */
+
     myTIM2_Init();      /* Initialize timer TIM2 */
     myEXTI_Init();      /* Initialize EXTI */
 
-    uint8_t previousSignal = selectedSignal;
-
     while (1)
     {
-        // Nothing is going on here...
+        uint32_t adc_val = myADC_Read();
+
+        float voltage = (adc_val * 3.3f) / 4095.0f;
+
+        uint32_t count = measuredCount;
+
+        if(count > 0)
+        {
+        	float period_us = (count / 48.0f);
+
+			float freq = (float)48000000 / count;
+
+			trace_printf(
+				"\nFrequency: %f Hz, Period: %f us",
+				freq, period_us);
+        }
+        trace_printf("\nADC: %u, Voltage: %f V", adc_val, voltage);
+
+        for(volatile uint32_t i = 0; i < 1000000; i++);
 
     }
 
     return 0;
-
 }
 
 void myGPIOA_Init()
@@ -137,6 +160,11 @@ void myGPIOA_Init()
     /* Ensure no pull-up/pull-down for PA0 */
     GPIOA->PUPDR &= ~GPIO_PUPDR_PUPDR0;
 
+    /* Configure PA1 as analog mode */
+    GPIOA->MODER |= GPIO_MODER_MODER1;
+
+    /* Ensure no pull-up/pull-down for PA1 */
+    GPIOA->PUPDR &= ~GPIO_PUPDR_PUPDR1;
 }
 
 void myGPIOB_Init()
@@ -159,7 +187,7 @@ void myGPIOB_Init()
     GPIOB->PUPDR &= ~GPIO_PUPDR_PUPDR3;
 }
 
-void myGPIOC_Init() 
+void myGPIOC_Init()
 {
     /* Enable clock for GPIOC peripheral */
     RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
@@ -173,6 +201,46 @@ void myGPIOC_Init()
     GPIOC->ODR &= ~(1U << 9);
 }
 
+void myADC_Init()
+{
+	/* Enable ADC peripheral clock */
+	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+
+	/* Set 12-bit resolution */
+	ADC1->CFGR1 &= ~ADC_CFGR1_RES;
+
+	/* Set right alignment */
+	ADC1->CFGR1 &= ~ADC_CFGR1_ALIGN;
+
+	/* Set single conversion mode */
+	ADC1->CFGR1 &= ~ADC_CFGR1_CONT;
+
+	/* Select channel 1 */
+	ADC1->CHSELR = ADC_CHSELR_CHSEL1;
+
+	/* Set max sampling time */
+	ADC1->SMPR |= ADC_SMPR_SMP;
+
+	/* Clear ready flag */
+	ADC1->ISR = ADC_ISR_ADRDY;
+
+	/* Enable ADC */
+	ADC1->CR |= ADC_CR_ADEN;
+
+	while(!(ADC1->ISR & ADC_ISR_ADRDY));
+}
+
+uint32_t myADC_Read()
+{
+
+	/* Start conversion */
+	ADC1->CR |= ADC_CR_ADSTART;
+
+	/* Wait for conversion to end */
+	while(!(ADC1->ISR & ADC_ISR_EOC));
+
+	return ADC1->DR;
+}
 
 void myTIM2_Init()
 {
@@ -371,13 +439,7 @@ void EXTI2_3_IRQHandler()
 
             if (!timerOverflow && count > 0)
             {
-                float period_us = (count / 48.0);
-
-                float freq = (float)48000000 / count;
-
-                trace_printf(
-                    "\nFrequency: %f Hz, Period: %f us",
-                    freq, period_us);
+               measuredCount = count;
             } else {
             	trace_printf("\nOverflow / zero count error!");
             }
@@ -405,6 +467,7 @@ void EXTI0_1_IRQHandler()
 
         timerOverflow = 0;
         firstEdge = 1;
+        measuredCount = 0;
 
         /* Switches selected signal */
         selectedSignal ^= 1;
