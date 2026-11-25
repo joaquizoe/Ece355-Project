@@ -37,10 +37,8 @@
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
-
 /* Definitions of registers and their bits are
    given in system/include/cmsis/stm32f051x8.h */
-
 
 /* Clock prescaler for TIM2 timer: no prescaling */
 #define myTIM2_PRESCALER ((uint16_t)0x0000)
@@ -52,7 +50,8 @@ void myTIM2_Init(void);
 void myEXTI_Init(void);
 
 void myGPIOA_Init(void);
-
+void myGPIOB_Init(void);
+void myGPIOC_Init(void);
 
 // Declare/initialize your global variables here...
 // NOTE: You'll need at least one global variable
@@ -95,16 +94,13 @@ void SystemClock48MHz( void )
 // Update the system with the new clock frequency
 //
     SystemCoreClockUpdate();
-
 }
 
 /*****************************************************************/
 
-
 int
 main(int argc, char* argv[])
   {
-
     SystemClock48MHz();
 
     trace_printf("This is Part 2 of Introductory Lab...\n");
@@ -114,6 +110,7 @@ main(int argc, char* argv[])
 
     myGPIOA_Init();     /* Initialize USER button PA0 */
     myGPIOB_Init();     /* Initialize I/O port PB */
+    myGPIOC_Init();     /* Initialize blue and green LEDs */
     myTIM2_Init();      /* Initialize timer TIM2 */
     myEXTI_Init();      /* Initialize EXTI */
 
@@ -160,6 +157,20 @@ void myGPIOB_Init()
 
     GPIOB->PUPDR &= ~(3U << 4);
     GPIOB->PUPDR &= ~GPIO_PUPDR_PUPDR3;
+}
+
+void myGPIOC_Init() 
+{
+    /* Enable clock for GPIOC peripheral */
+    RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
+
+    /* Configure PC8 and PC9 as outputs */
+    GPIOC->MODER &= ~(GPIO_MODER_MODER8 | GPIO_MODER_MODER9);
+    GPIOC->MODER |= GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
+
+    /* Initially turn on blue LED and turn off green LED */
+    GPIOC->ODR |= (1U << 8);
+    GPIOC->ODR &= ~(1U << 9);
 }
 
 
@@ -271,7 +282,6 @@ void myEXTI_Init()
     /* Initially disable EXTI3 */
     EXTI->IMR &= ~EXTI_IMR_MR3;
 }
-
 
 /* This handler is declared in system/src/cmsis/vectors_stm32f051x8.c */
 void TIM2_IRQHandler()
@@ -406,11 +416,17 @@ void EXTI0_1_IRQHandler()
         {
             /* Enable function generator */
             EXTI->IMR |= EXTI_IMR_MR2;
+
+            GPIOC->ODR |= (1U << 8);
+            GPIOC->ODR &= ~(1U << 9);
         }
         else
         {
             /* Enable NE555 */
             EXTI->IMR |= EXTI_IMR_MR3;
+
+            GPIOC->ODR &= ~(1U << 8);
+            GPIOC->ODR |= (1U << 9);
         }
     }
 }
