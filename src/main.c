@@ -111,7 +111,7 @@ main(int argc, char* argv[])
     trace_printf("This is Part 2 of Introductory Lab...\n");
     trace_printf("System clock: %u Hz\n", SystemCoreClock);
 
-        RCC->APB2ENR |= RCC_APB2ENR_SYSCFGCOMPEN;  /* Enable SYSCFG clock */
+    RCC->APB2ENR |= RCC_APB2ENR_SYSCFGCOMPEN;  /* Enable SYSCFG clock */
 
     myGPIOA_Init();     /* Initialize USER button PA0 */
     myGPIOB_Init();     /* Initialize I/O port PB */
@@ -152,7 +152,7 @@ main(int argc, char* argv[])
 void myGPIOA_Init()
 {
     /* Enable clofk for GPIOA peripheral */
-    RCC->AHBENR |= RCC_AHBENR_GPIOAEN_Msk;
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
     /* Congigure PA0 as input */
     GPIOA->MODER &= ~GPIO_MODER_MODER0;
@@ -172,19 +172,19 @@ void myGPIOB_Init()
     /* Enable clock for GPIOB peripheral */
     // Relevant register: RCC->AHBENR
 
-    RCC->AHBENR |= RCC_AHBENR_GPIOBEN_Msk;
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
 
     /* Configure PB2 and PB3 as inputs */
     // Relevant register: GPIOB->MODER
 
     GPIOB->MODER &= ~(3U << 4);
-    GPIOB->MODER &= ~GPIO_MODER_MODER3;
+    GPIOB->MODER &= ~(3U << 6);
 
     /* Ensure no pull-up/pull-down for PB2 and PB3 */
     // Relevant register: GPIOB->PUPDR
 
     GPIOB->PUPDR &= ~(3U << 4);
-    GPIOB->PUPDR &= ~GPIO_PUPDR_PUPDR3;
+    GPIOB->PUPDR &= ~(3U << 6);
 }
 
 void myGPIOC_Init()
@@ -387,7 +387,7 @@ void EXTI2_3_IRQHandler()
         activeLine = EXTI_PR_PR3;
     }
 
-    /* Check if EXTI2 interrupt pending flag is indeed set */
+    /* Check if the selected signal's interrupt pending flag is set */
     if ((EXTI->PR & activeLine) != 0)
     {
         //
@@ -410,7 +410,7 @@ void EXTI2_3_IRQHandler()
         //
 
         /* Clear selected interrupt pending flag */
-        EXTI->PR = activeLine; // CHANGED
+        EXTI->PR = activeLine;
 
         if (firstEdge == 1)
         {
