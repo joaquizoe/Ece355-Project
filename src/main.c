@@ -54,6 +54,8 @@ void myGPIOB_Init(void);
 void myGPIOC_Init(void);
 
 void myADC_Init(void);
+void myDAC_Init(void);
+
 uint32_t myADC_Read();
 
 // Declare/initialize your global variables here...
@@ -118,6 +120,7 @@ main(int argc, char* argv[])
     myGPIOC_Init();     /* Initialize blue and green LEDs */
 
     myADC_Init(); 		/* Initialize ADC */
+    myDAC_Init();
 
     myTIM2_Init();      /* Initialize timer TIM2 */
     myEXTI_Init();      /* Initialize EXTI */
@@ -125,6 +128,9 @@ main(int argc, char* argv[])
     while (1)
     {
         uint32_t adc_val = myADC_Read();
+
+        DAC->DHR12R1 = adc_val;
+        uint32_t dac_val = DAC->DOR1;
 
         float voltage = (adc_val * 3.3f) / 4095.0f;
 
@@ -141,9 +147,9 @@ main(int argc, char* argv[])
 				freq, period_us);
         }
         trace_printf("\nADC: %u, Voltage: %f V", adc_val, voltage);
+        trace_printf("\nDAC: %u", dac_val);
 
         for(volatile uint32_t i = 0; i < 1000000; i++);
-
     }
 
     return 0;
@@ -160,11 +166,17 @@ void myGPIOA_Init()
     /* Ensure no pull-up/pull-down for PA0 */
     GPIOA->PUPDR &= ~GPIO_PUPDR_PUPDR0;
 
-    /* Configure PA1 as analog mode */
+    /* Configure PA1 as input analog mode */
     GPIOA->MODER |= GPIO_MODER_MODER1;
 
     /* Ensure no pull-up/pull-down for PA1 */
     GPIOA->PUPDR &= ~GPIO_PUPDR_PUPDR1;
+
+    /* Configure PA4 as output analog mode */
+    GPIOA->MODER |= GPIO_MODER_MODER4;
+
+    /* Ensure no pull-up/pull-down for PA4 */
+    GPIOA->PUPDR &= ~GPIO_PUPDR_PUPDR4;
 }
 
 void myGPIOB_Init()
@@ -228,6 +240,21 @@ void myADC_Init()
 	ADC1->CR |= ADC_CR_ADEN;
 
 	while(!(ADC1->ISR & ADC_ISR_ADRDY));
+}
+
+void myDAC_Init()
+{
+	/* Enable DAC peripheral clock */
+	RCC->APB1ENR |= RCC_APB1ENR_DACEN;
+
+	/* Enable output buffer */
+	DAC->CR &= ~DAC_CR_BOFF1;
+
+	/* Disable trigger */
+	DAC->CR &= ~DAC_CR_TEN1;
+
+	/* Enable DAC */
+	DAC->CR |= DAC_CR_EN1;
 }
 
 uint32_t myADC_Read()
